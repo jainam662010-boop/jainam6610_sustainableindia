@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Quiz — Class 10Edu</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="nb"></div>
+  <div class="page-layout">
+    <div id="sb"></div>
+    <main class="main-area" id="mainArea">
+      <div style="display:flex;align-items:center;justify-content:center;padding:80px 0"><div class="spinner"></div></div>
+    </main>
+  </div>
+  <div class="page-watermark"></div>
+
+  <script src="js/app.js"></script>
+  <script src="js/security.js"></script>
+  <script src="js/theme_todo.js"></script>
+  <script>
+  'use strict';
+
+  const Quiz = {
+    qs: [], cur: 0, sel: null, answered: false, score: 0, sid: '', cid: '',
+    difficulty: 'medium', // adaptive difficulty
+    correctStreak: 0,
+    wrongStreak: 0,
+    responseTimes: [],
+    
+    start(qs, sid, cid) {
+      if (!qs || qs.length === 0) { App.toast('No questions available', '⚠️'); return; }
+      this.qs = this._adaptiveQuestionSelection(qs);
+      this.cur = 0; this.sel = null;
+      this.answered = false; this.score = 0;
+      this.sid = sid; this.cid = cid;
+      this.correctStreak = 0;
+      this.wrongStreak = 0;
+      this.responseTimes = [];
+      this._startTime = Date.now();
+      this._render();
+    },
+    
+    _adaptiveQuestionSelection(allQuestions) {
+      // Get student's past performance for this subject/chapter
+      const progress = App.getProgress();
+      const subjectProgress = progress[this.sid] || {};
+      const pastScores = Object.values(subjectProgress.scores || {});
+      const avgScore = pastScores.length > 0 ? pastScores.reduce((sum, s) => sum + s.pct, 0) / pastScores.length : 50;
+      
+      // Determine difficulty level
+      if (avgScore >= 80) this.difficulty = 'hard';
+      else if (avgScore >= 60) this.difficulty = 'medium';
+      else this.difficulty = 'easy';
+      
+      // Filter and select questions based on difficulty
+      let filteredQuestions = allQuestions;
+      if (this.difficulty === 'easy') {
+        filteredQuestions = allQuestions.filter(q => !q.difficulty || q.difficulty === 'easy');
+      } else if (this.difficulty === 'hard') {
+        filteredQuestions = allQuestions.filter(q => q.difficulty === 'hard' || q.difficulty === 'medium');
+      }
+      
+      // If not enough questions for the difficulty, use all questions
+      if (filteredQuestions.length < 5) {
+        filteredQuestions = allQuestions;
+      }
+      
+      // Return up to 10 questions, prioritizing the selected difficulty
+      return filteredQuestions.slice(0, Math.min(10, filteredQuestions.length));
+    },
+    
+    _adjustDifficulty() {
+      // Adjust difficulty based on performance
+      if (this.correctStreak >= 3 && this.difficulty !== 'hard') {
+        this.difficulty = this.difficulty === 'easy' ? 'medium' : 'hard';
+        App.toast(`Difficulty increased to ${this.difficulty}!`, '📈');
+      } else if (this.wrongStreak >= 2 && this.difficulty !== 'easy') {
+        this.difficulty = this.difficulty === 'hard' ? 'medium' : 'easy';
+        App.toast(`Difficulty adjusted to ${this.difficulty}`, '📉');
+      }
+    },
+    _render() {
+      const el = document.getElementById('quizBody');
+      if (!el) return;
+      const q   = this.qs[this.cur];
+      const pct = Math.round((this.cur / this.qs.length) * 100);
+      const L   = ['A','B','C','D','E'];
+      const difficultyColor = this.difficulty === 'easy' ? '#10B981' : this.difficulty === 'hard' ? '#EF4444' : '#F59E0B';
+      
+      el.innerHTML =
+        `<div class="qpbar"><div class="qpfill" id="qpf" style="width:${pct}%"></div></div>` +
+        `<span class="q-label">Question ${this.cur + 1} of ${this.qs.length}` +
+          `<span style="color:${difficultyColor}; font-weight:700"> · ${this.difficulty.toUpperCase()}</span>` +
+          (q.difficulty ? ` &nbsp;·&nbsp; ${VidyaSec.sanitize(q.difficulty)}` : '') + `</span>` +
+        `<div class="q-text">${VidyaSec.sanitize(q.q)}</div>` +
+        `<div class="q-opts" id="qOpts">` +
+          q.options.map((o, i) =>
+            `<button class="q-opt" data-idx="${i}">` +
+              `<div class="q-lbl">${L[i] || (i+1)}</div>` +
+              VidyaSec.sanitize(o) +
+            `</button>`
+          ).join('') +
+        `</div>` +
+        `<div class="q-fb" id="qFb"></div>` +
+        `<div class="q-acts">` +
+          `<button class="btn btn-b" id="qSub">Submit Answer</button>` +
+          `<button class="btn btn-gh" id="qNext" style="display:none">` +
+            (this.cur < this.qs.length - 1 ? 'Next →' : 'See Results') +
+          `</button>` +
+        `</div>`;
+      
+      this._questionStartTime = Date.now();
+      document.getElementById('qOpts').addEventListener('click', e => {
+        const btn = e.target.closest('.q-opt');
+        if (btn && !this.answered) this._pick(parseInt(btn.dataset.idx));
+      });
+      document.getElementById('qSub').addEventListener('click',  () => this._submit());
+      document.getElementById('qNext').addEventListener('click', () => this._next());
+    },
+    _pick(i) {
+      this.sel = i;
+      document.querySelectorAll('.q-opt').forEach((b, j) => b.classList.toggle('sel', j === i));
+    },
+    _submit() {
+      if (this.sel === null || this.answered) return;
+      this.answered = true;
+      const q = this.qs[this.cur];
+      const responseTime = Math.round((Date.now() - this._questionStartTime) / 1000);
+      this.responseTimes.push(responseTime);
+      
+      document.querySelectorAll('.q-opt').forEach((b, i) => {
+        if (i === q.answer)  b.classList.add('ok');
+        else if (i === this.sel) b.classList.add('ng');
+      });
+      
+      const fb = document.getElementById('qFb');
+      const isCorrect = this.sel === q.answer;
+      
+      // Update streaks
+      if (isCorrect) {
+        this.score++;
+        this.correctStreak++;
+        this.wrongStreak = 0;
+      } else {
+        this.correctStreak = 0;
+        this.wrongStreak++;
+      }
+      
+      // Generate detailed feedback
+      let feedbackHTML = '';
+      if (isCorrect) {
+        feedbackHTML = `
+          <div class="q-fb ok show">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+              <span style="font-size:20px">✅</span>
+              <span style="font-weight:700; color:#10B981">Correct!</span>
+              ${responseTime <= 10 ? '<span style="color:#6366F1; font-size:0.8rem">· Quick response!</span>' : ''}
+            </div>
+            ${q.explanation ? `<div style="font-size:0.9rem; color:var(--ink-2); margin-top:8px">${VidyaSec.sanitize(q.explanation)}</div>` : ''}
+            ${q.concept ? `<div style="font-size:0.8rem; color:var(--accent); margin-top:4px">📚 Concept: ${VidyaSec.sanitize(q.concept)}</div>` : ''}
+          </div>
+        `;
+      } else {
+        feedbackHTML = `
+          <div class="q-fb ng show">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+              <span style="font-size:20px">❌</span>
+              <span style="font-weight:700; color:#EF4444">Incorrect</span>
+            </div>
+            <div style="font-size:0.9rem; color:var(--ink-2); margin-bottom:8px">
+              The correct answer is <strong>${VidyaSec.sanitize(q.options[q.answer])}</strong>
+            </div>
+            ${q.explanation ? `<div style="font-size:0.9rem; color:var(--ink-2); margin-top:8px">${VidyaSec.sanitize(q.explanation)}</div>` : ''}
+            ${q.concept ? `<div style="font-size:0.8rem; color:var(--accent); margin-top:4px">📚 Review concept: ${VidyaSec.sanitize(q.concept)}</div>` : ''}
+            ${this.wrongStreak >= 2 ? `<div style="font-size:0.8rem; color:#F59E0B; margin-top:8px">💡 Tip: Take your time and read each option carefully</div>` : ''}
+          </div>
+        `;
+      }
+      
+      fb.innerHTML = feedbackHTML;
+      document.getElementById('qSub').style.display  = 'none';
+      document.getElementById('qNext').style.display = 'inline-flex';
+      const pf = document.getElementById('qpf');
+      if (pf) pf.style.width = Math.round(((this.cur + 1) / this.qs.length) * 100) + '%';
+      
+      // Adjust difficulty for next question
+      this._adjustDifficulty();
+    },
+    _next() {
+      if (this.cur >= this.qs.length - 1) { this._result(); return; }
+      this.cur++; this.sel = null; this.answered = false;
+      this._render();
+    },
+    _result() {
+      const pct = Math.round(this.score / this.qs.length * 100);
+      const totalTime = Math.round((Date.now() - this._startTime) / 1000);
+      const avgResponseTime = this.responseTimes.length > 0 ? Math.round(this.responseTimes.reduce((a, b) => a + b, 0) / this.responseTimes.length) : 0;
+      const [em, msg] = pct >= 80 ? ['🏆','Board Ready!']
+                      : pct >= 60 ? ['👍','Good work!']
+                      : pct >= 40 ? ['📚','Keep practising!']
+                      : ['💪','Revise and retry!'];
+      
+      // Performance insights
+      let insights = [];
+      if (avgResponseTime <= 15) insights.push('⚡ Fast responder');
+      if (this.correctStreak >= 3) insights.push('🔥 Great streak');
+      if (pct >= 80) insights.push('🎯 High accuracy');
+      if (this.difficulty === 'hard') insights.push('💪 Challenging mode');
+      
+      const el = document.getElementById('quizBody');
+      if (!el) return;
+      
+      el.innerHTML =
+        `<div class="quiz-result">` +
+          `<span class="qr-em">${em}</span>` +
+          `<div style="font-size:1.1rem;color:var(--ink);margin-bottom:8px;font-weight:800">${msg}</div>` +
+          `<div class="qr-score">${this.score}/${this.qs.length}</div>` +
+          `<div class="qr-sub">${pct}% accuracy</div>` +
+          
+          // Performance Analytics
+          `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin:24px 0; padding:20px; background:var(--bg-2); border-radius:12px">
+            <div style="text-align:center">
+              <div style="font-size:0.8rem; color:var(--ink-3); margin-bottom:4px">Total Time</div>
+              <div style="font-size:1.2rem; font-weight:800; color:var(--accent)">${Math.floor(totalTime/60)}:${(totalTime%60).toString().padStart(2,'0')}</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:0.8rem; color:var(--ink-3); margin-bottom:4px">Avg Response</div>
+              <div style="font-size:1.2rem; font-weight:800; color:var(--accent)">${avgResponseTime}s</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:0.8rem; color:var(--ink-3); margin-bottom:4px">Difficulty</div>
+              <div style="font-size:1.2rem; font-weight:800; color:${this.difficulty === 'easy' ? '#10B981' : this.difficulty === 'hard' ? '#EF4444' : '#F59E0B'}">${this.difficulty.toUpperCase()}</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:0.8rem; color:var(--ink-3); margin-bottom:4px">Best Streak</div>
+              <div style="font-size:1.2rem; font-weight:800; color:var(--accent)">${this.correctStreak} 🔥</div>
+            </div>
+          </div>` +
+          
+          // Performance Insights
+          `${insights.length > 0 ? `
+            <div style="margin-bottom:20px">
+              <div style="font-size:0.9rem; font-weight:700; color:var(--ink-2); margin-bottom:8px">Performance Insights:</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap">${insights.map(insight => `<span style="background:var(--accent-bg); color:var(--accent); padding:4px 8px; border-radius:99px; font-size:0.8rem; font-weight:600">${insight}</span>`).join('')}</div>
+            </div>
+          ` : ''}` +
+          
+          // Recommendations
+          `<div style="margin-bottom:24px">
+            <div style="font-size:0.9rem; font-weight:700; color:var(--ink-2); margin-bottom:8px">Recommendations:</div>
+            <div style="font-size:0.85rem; color:var(--ink-3); line-height:1.5">
+              ${pct < 60 ? '📖 Review the chapter concepts and try again. Focus on understanding the fundamentals.' : 
+                pct < 80 ? '👍 Good progress! Review incorrect answers and practice similar questions.' :
+                '🎉 Excellent work! Challenge yourself with harder questions or move to the next topic.'}
+            </div>
+          </div>` +
+          
+          `<div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-top:16px">` +
+            `<button class="btn btn-gh" id="qRetry">↺ Retry</button>` +
+            `<a class="btn btn-tl" id="qBack" href="chapter.html?subject=${this.sid}&chapter=${this.cid}">← Back to Chapter</a>` +
+          `</div>` +
+        `</div>`;
+      
+      document.getElementById('qRetry').addEventListener('click', () => Quiz.start(Quiz.qs, Quiz.sid, Quiz.cid));
+      App.saveScore(this.sid, this.cid, this.score, this.qs.length);
+      
+      // Award bonus points for high performance
+      if (pct >= 90) {
+        App.addPoints(25, 'Excellent quiz performance!');
+      } else if (pct >= 80) {
+        App.addPoints(15, 'Great quiz result!');
+      }
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', async()=>{
+    const sid = App.getParam('subject') || '';
+    const cid = App.getParam('chapter') || '';
+    if(!sid || !cid){ location.href='dashboard.html'; return; }
+
+    App.initPage(sid);
+    await App.loadData();
+    const subj = App.getSubject(sid);
+    const ch   = App.getChapter(sid,cid);
+    if(!subj || !ch){ location.href='dashboard.html'; return; }
+    document.title = `Quiz · ${ch.title} — Class 10Edu`;
+
+    const admData = App._parseLS('vm_admin_data', { quiz: [] });
+    const extra = (admData.quiz||[]).filter(q => q.chapter === cid || q.subject === sid);
+    const allQ = [...(ch.quiz||[]), ...extra];
+
+    document.getElementById('mainArea').innerHTML = `
+      <div class="page-head au">
+        <div class="breadcrumb"><a href="dashboard.html">Dashboard</a><span class="sep">›</span><a href="subject.html?id=${sid}">${VidyaSec.sanitize(subj.name)}</a><span class="sep">›</span><a href="chapter.html?subject=${sid}&chapter=${cid}">${VidyaSec.sanitize(ch.title)}</a><span class="sep">›</span><span>Quiz</span></div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <h1>🧩 Chapter Quiz</h1>
+            <div class="lead">${VidyaSec.sanitize(ch.title)} · ${allQ.length} questions</div>
+          </div>
+          <a class="btn btn-gh btn-sm" href="chapter.html?subject=${sid}&chapter=${cid}">← Back</a>
+        </div>
+      </div>
+      <div class="quiz-card au-1">
+        <div class="card-top-rule"></div>
+        <div class="sec-head"><h3>Start</h3><span class="chip chip-a">${allQ.length} Qs</span></div>
+        <div id="quizBody" class="quiz-body">
+          <div style="text-align:center;padding:16px">
+            <p style="color:var(--ink-3);margin-bottom:14px;font-size:.88rem">Answer honestly. Focus on concepts, not speed.</p>
+            <button class="btn btn-b btn-lg" id="startQuizBtn">🚀 Start Quiz</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('startQuizBtn')?.addEventListener('click', ()=>Quiz.start(allQ, sid, cid));
+  });
+  </script>
+  <script src="js/music.js"></script>
+</body>
+</html>
+

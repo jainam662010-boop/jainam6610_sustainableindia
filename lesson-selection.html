@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Lesson Selection — Class 10Edu</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .modal-overlay {
+      position: fixed; top:0; left:0; right:0; bottom:0;
+      background: rgba(0,0,0,0.8); backdrop-filter: blur(10px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999; opacity: 0; animation: fadeIn 0.3s forwards;
+    }
+    .modal-content {
+      background: var(--surface); border-radius: var(--r-xl);
+      max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;
+      box-shadow: var(--shadow-xl); transform: scale(0.9);
+      animation: modalSlide 0.3s forwards;
+    }
+    @keyframes modalSlide { to { transform: scale(1); } }
+    .teacher-grid, .content-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px; padding: 24px;
+    }
+    .teacher-card, .content-card {
+      background: var(--bg-2); border: 2px solid var(--border);
+      border-radius: var(--r-lg); padding: 20px; text-align: center;
+      cursor: pointer; transition: all 0.2s var(--spring);
+      min-height: 120px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+    }
+    .teacher-card:hover, .content-card:hover {
+      transform: translateY(-4px); border-color: var(--accent);
+      box-shadow: var(--shadow-accent);
+    }
+    .teacher-card.selected, .content-card.selected {
+      background: var(--accent-bg); border-color: var(--accent);
+      transform: translateY(-4px) scale(1.05);
+    }
+    .teacher-avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 800; color: white;
+    }
+    .content-icon {
+      font-size: 32px; margin-bottom: 8px;
+    }
+    .step-indicator {
+      display: flex; justify-content: center; gap: 8px;
+      padding: 20px; background: var(--bg-2);
+    }
+    .step-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--border); transition: all 0.3s;
+    }
+    .step-dot.active { background: var(--accent); transform: scale(1.2); }
+    .step-dot.completed { background: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <div id="nb"></div>
+  <div class="page-layout">
+    <div id="sb"></div>
+    <main class="main-area" id="mainArea">
+      <div style="display:flex;align-items:center;justify-content:center;padding:80px 0">
+        <div class="spinner"></div>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-overlay" id="selectionModal">
+    <div class="modal-content">
+      <div class="step-indicator">
+        <div class="step-dot active" id="step1"></div>
+        <div class="step-dot" id="step2"></div>
+        <div class="step-dot" id="step3"></div>
+      </div>
+      
+      <div id="step1Content" style="padding:24px">
+        <h2 style="text-align:center; margin-bottom:24px">Choose Your Teacher</h2>
+        <div class="teacher-grid" id="teacherGrid"></div>
+      </div>
+      
+      <div id="step2Content" style="display:none; padding:24px">
+        <h2 style="text-align:center; margin-bottom:24px">Select Learning Format</h2>
+        <div class="content-grid" id="contentGrid"></div>
+      </div>
+      
+      <div id="step3Content" style="display:none; padding:24px">
+        <h2 style="text-align:center; margin-bottom:24px">Choose Video Type</h2>
+        <div class="content-grid" id="videoGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script src="js/security.js"></script>
+  <script src="js/theme_todo.js"></script>
+  <script>
+  const LessonSelection = {
+    currentStep: 1,
+    selectedTeacher: null,
+    selectedContent: null,
+    selectedVideoType: null,
+    sid: '', cid: '', teachers: [],
+
+    async init() {
+      this.sid = App.getParam('subject') || '';
+      this.cid = App.getParam('chapter') || '';
+      if(!this.sid || !this.cid){ location.href='dashboard.html'; return; }
+
+      App.initPage(this.sid);
+      await App.loadData();
+      
+      const subj = App.getSubject(this.sid);
+      const ch = App.getChapter(this.sid, this.cid);
+      if(!subj || !ch){ location.href='dashboard.html'; return; }
+
+      this.loadTeachers();
+      this.showModal();
+    },
+
+    loadTeachers() {
+      const admData = App._parseLS('vm_admin_data', { teachers: [] });
+      const ch = App.getChapter(this.sid, this.cid);
+      const allTeach = [...(ch.teachers || []), ...(admData.teachers || [])];
+      
+      this.teachers = [
+        { id: 'all', name: 'All Teachers', avatar: '👨‍🏫', color: 'var(--accent)' },
+        ...allTeach.filter(t => !t.subject || t.subject === this.sid)
+      ];
+      
+      this.renderTeachers();
+    },
+
+    renderTeachers() {
+      const grid = document.getElementById('teacherGrid');
+      grid.innerHTML = this.teachers.map(t => `
+        <div class="teacher-card ${this.selectedTeacher === t.id ? 'selected' : ''}" 
+             data-teacher="${t.id}">
+          <div class="teacher-avatar" style="background: ${t.color}">
+            ${t.avatar || t.name?.[0] || 'T'}
+          </div>
+          <div style="font-weight: 700">${t.name}</div>
+          ${t.channel ? `<div style="font-size: 0.75rem; opacity: 0.7">${t.channel}</div>` : ''}
+        </div>
+      `).join('');
+
+      grid.addEventListener('click', e => {
+        const card = e.target.closest('.teacher-card');
+        if(card) {
+          this.selectedTeacher = card.dataset.teacher;
+          this.nextStep();
+        }
+      });
+    },
+
+    renderContentTypes() {
+      const grid = document.getElementById('contentGrid');
+      const types = [
+        { id: 'video', icon: '🎬', label: 'Video Lesson' },
+        { id: 'notes', icon: '📝', label: 'Study Notes' },
+        { id: 'quiz', icon: '🧩', label: 'Practice Quiz' },
+        { id: 'wpp', icon: '📋', label: 'Worksheet' },
+        { id: 'animation', icon: '🎨', label: 'Animation' },
+        { id: 'explanation', icon: '🧠', label: 'Brainstorm' }
+      ];
+
+      grid.innerHTML = types.map(t => `
+        <div class="content-card ${this.selectedContent === t.id ? 'selected' : ''}" 
+             data-content="${t.id}">
+          <div class="content-icon">${t.icon}</div>
+          <div style="font-weight: 700">${t.label}</div>
+        </div>
+      `).join('');
+
+      grid.addEventListener('click', e => {
+        const card = e.target.closest('.content-card');
+        if(card) {
+          this.selectedContent = card.dataset.content;
+          if(this.selectedContent === 'video') {
+            this.nextStep();
+          } else {
+            this.proceedToContent();
+          }
+        }
+      });
+    },
+
+    renderVideoTypes() {
+      const grid = document.getElementById('videoGrid');
+      const types = [
+        { id: 'oneshot', icon: '🎥', label: 'One Shot' },
+        { id: 'revision', icon: '🔄', label: 'Revision' },
+        { id: 'detailed', icon: '📚', label: 'Detailed' }
+      ];
+
+      grid.innerHTML = types.map(t => `
+        <div class="content-card ${this.selectedVideoType === t.id ? 'selected' : ''}" 
+             data-video="${t.id}">
+          <div class="content-icon">${t.icon}</div>
+          <div style="font-weight: 700">${t.label}</div>
+        </div>
+      `).join('');
+
+      grid.addEventListener('click', e => {
+        const card = e.target.closest('.content-card');
+        if(card) {
+          this.selectedVideoType = card.dataset.video;
+          this.proceedToContent();
+        }
+      });
+    },
+
+    showModal() {
+      document.getElementById('selectionModal').style.display = 'flex';
+      this.updateStepIndicator();
+    },
+
+    nextStep() {
+      if(this.currentStep === 1) {
+        document.getElementById('step1Content').style.display = 'none';
+        document.getElementById('step2Content').style.display = 'block';
+        this.renderContentTypes();
+        this.currentStep = 2;
+      } else if(this.currentStep === 2 && this.selectedContent === 'video') {
+        document.getElementById('step2Content').style.display = 'none';
+        document.getElementById('step3Content').style.display = 'block';
+        this.renderVideoTypes();
+        this.currentStep = 3;
+      }
+      this.updateStepIndicator();
+    },
+
+    updateStepIndicator() {
+      for(let i = 1; i <= 3; i++) {
+        const dot = document.getElementById(`step${i}`);
+        dot.className = 'step-dot';
+        if(i < this.currentStep) dot.classList.add('completed');
+        if(i === this.currentStep) dot.classList.add('active');
+      }
+    },
+
+    proceedToContent() {
+      const params = new URLSearchParams();
+      params.set('subject', this.sid);
+      params.set('chapter', this.cid);
+      if(this.selectedTeacher && this.selectedTeacher !== 'all') {
+        params.set('teacher', this.selectedTeacher);
+      }
+      params.set('type', this.selectedContent);
+      if(this.selectedVideoType) {
+        params.set('videoType', this.selectedVideoType);
+      }
+
+      let targetPage = 'lesson.html';
+      if(this.selectedContent === 'quiz') targetPage = 'quiz.html';
+      else if(this.selectedContent === 'notes') targetPage = 'lesson.html';
+      else if(this.selectedContent === 'wpp') targetPage = 'lesson.html';
+
+      location.href = `${targetPage}?${params.toString()}`;
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', () => LessonSelection.init());
+  </script>
+</body>
+</html>

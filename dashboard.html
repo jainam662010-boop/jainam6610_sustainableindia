@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dashboard — Class 10Edu</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="nb"></div>
+<div class="page-layout">
+  <div id="sb"></div>
+  <main class="main-area" id="mainArea">
+    <div style="display:flex;align-items:center;justify-content:center;padding:80px 0"><div class="spinner"></div></div>
+  </main>
+</div>
+<div class="page-watermark"></div>
+<script src="js/app.js"></script>
+<script src="js/security.js"></script>
+<script src="js/theme_todo.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check onboarding
+  if (!App.hasProfile()) {
+    App.applyMode();
+    App.showOnboarding(() => location.reload());
+    return;
+  }
+
+  App.initPage('dashboard');
+  const data = await App.loadData();
+  const p    = App.getProgress();
+  const admData = App._parseLS('vm_admin_data', { announcements:[], pdfs:[], ncertTopics:[] });
+  const profile = App.getProfile();
+
+  // Compute stats
+  let totalDone=0, totalQz=0, totalPct=0, lastSubj=null, lastCh=null, lastTs=0;
+  data.subjects.forEach(s => {
+    const sp = p[s.id] || {};
+    totalDone += (sp.done||[]).length;
+    Object.values(sp.scores||{}).forEach(sc => { totalQz++; totalPct += sc.pct; });
+    if (sp.last && (sp.last.ts||0) > lastTs) { lastSubj=s; lastCh=sp.last; lastTs=sp.last.ts||0; }
+  });
+  const avgQ    = totalQz ? Math.round(totalPct/totalQz) : 0;
+  const streak  = parseInt(localStorage.getItem('vm_streak')||'0');
+  const anns    = (admData.announcements||[]).slice(0,3);
+  const motd    = localStorage.getItem('vm_motd') || 'Every expert was once a beginner.';
+  const m=localStorage.getItem('vm_mode')||'light';
+  const btn=document.getElementById('modeBtn');if(btn)btn.innerHTML=m==='dark'?'☀️':'🌙';
+  document.querySelectorAll('.mt-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===m));
+
+  // Initialize real-time sync
+  App.initRealTimeSync();
+  
+  // Award daily login points
+  const today = new Date().toDateString();
+  const lastLogin = localStorage.getItem('vm_last_login');
+  if (lastLogin !== today) {
+    App.addPoints(5, 'Daily login');
+    localStorage.setItem('vm_last_login', today);
+  }
+  
+  // Get study time stats
+  const studyStats = App.getStudyTimeStats();
+
+  const greeting = getGreeting();
+  const gamification = App.getGamification();
+
+  const main = document.getElementById('mainArea');
+  main.innerHTML = `
+    <!-- Header -->
+    <div class="page-head au">
+      <div style="font-size:0.85rem; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px">${greeting}</div>
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px">
+        <div>
+          <h1 style="margin:0">Welcome back, ${VidyaSec.sanitize(profile?.name || 'Explorer')}! <span class="wave">👋</span></h1>
+          <p class="subtitle" style="margin-top:8px">"${VidyaSec.sanitize(motd)}"</p>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center">
+          <div class="points-display au-1">
+            <span style="font-size:18px">✨</span>
+            <span>${gamification.points} pts</span>
+          </div>
+          <div class="level-badge au-2">
+            Level ${gamification.level}
+          </div>
+          <div class="streak-badge au-3">
+            <span style="font-size:24px">🔥</span>
+            <div>
+              <div style="font-size:1.1rem; font-weight:900; line-height:1">${streak} Days</div>
+              <div style="font-size:0.65rem; font-weight:700; opacity:0.7; text-transform:uppercase">Study Streak</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Continue Learning Hero -->
+    ${lastCh ? `
+    <div class="continue-card au-1">
+      <div class="cont-content">
+        <div class="cont-label">Resume your journey</div>
+        <h2 class="cont-title">${VidyaSec.sanitize(lastCh.title)}</h2>
+        <p class="cont-sub">${VidyaSec.sanitize(lastSubj?.name||'')} • Module ${lastCh.cid}</p>
+        <a href="chapter.html?subject=${lastSubj?.id||''}&chapter=${lastCh.cid}" class="btn btn-primary">Resume Learning →</a>
+      </div>
+      <div class="cont-visual">
+        ${App.progressRingHTML(App.getSubjPct(lastSubj.id, lastSubj), 160)}
+      </div>
+    </div>` : `
+    <div class="continue-card au-1" style="background:var(--grad-primary)">
+      <div class="cont-content">
+        <div class="cont-label" style="color:rgba(255,255,255,0.8)">Get Started</div>
+        <h2 class="cont-title">Ready to score 100?</h2>
+        <p class="cont-sub" style="color:rgba(255,255,255,0.7)">Pick a subject and start your first lesson today.</p>
+        <a href="subject.html?id=${profile?.favourite||'mathematics'}" class="btn" style="background:#fff; color:var(--accent)">Start Learning →</a>
+      </div>
+      <div class="cont-visual" style="font-size:80px; opacity:0.2">🚀</div>
+    </div>
+    `}
+
+    <!-- Stats Strip -->
+    <div class="stats-strip au-2">
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-ico">📚</div>
+          <div class="stat-lbl">Subjects</div>
+        </div>
+        <div class="stat-val">${data.subjects.length}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-ico" style="background:var(--sci-bg); color:var(--sci-c)">✅</div>
+          <div class="stat-lbl">Lessons Done</div>
+        </div>
+        <div class="stat-val">${totalDone}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-ico" style="background:var(--math-bg); color:var(--math-c)">🏆</div>
+          <div class="stat-lbl">Quiz Average</div>
+        </div>
+        <div class="stat-val">${avgQ}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-top">
+          <div class="stat-ico" style="background:var(--soc-bg); color:var(--soc-c)">⏱️</div>
+          <div class="stat-lbl">Study Time</div>
+        </div>
+        <div class="stat-val">${studyStats.totalHours}h</div>
+      </div>
+    </div>
+
+    <!-- Badges Section -->
+    <div style="margin-bottom:32px" class="au-3">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px">
+        <h2 style="margin:0">🏆 Your Achievements</h2>
+        <span class="chip chip-b">${gamification.badges.length} Unlocked</span>
+      </div>
+      <div class="badge-collection">
+        ${['first-steps','on-fire','quiz-master','dedicated','speed-learner'].map(badgeId => {
+          const isUnlocked = gamification.badges.includes(badgeId);
+          const badges = {
+            'first-steps': {icon:'🌟',name:'First Steps'},
+            'on-fire': {icon:'🔥',name:'On Fire'},
+            'quiz-master': {icon:'🧠',name:'Quiz Master'},
+            'dedicated': {icon:'📚',name:'Dedicated'},
+            'speed-learner': {icon:'⚡',name:'Speed Learner'}
+          };
+          const badge = badges[badgeId];
+          return `
+            <div class="badge-item ${isUnlocked ? 'unlocked' : ''} au" style="animation-delay:${Math.random() * 300}ms">
+              <div class="badge-icon">${badge.icon}</div>
+              <div class="badge-name">${badge.name}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- Subjects Section -->
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px" class="au-3">
+      <h2 style="margin:0">Your Learning Path</h2>
+      <span class="chip chip-b">4 Core Subjects</span>
+    </div>
+    <div class="subjects-grid au-3" id="subjGrid"></div>
+
+    <!-- Recommendations & Tasks -->
+    <div style="display:grid; grid-template-columns: 1.5fr 1fr; gap:32px; margin-top:48px" class="au-4">
+      <div>
+        <h2 style="margin-bottom:24px">Smart Recommendations</h2>
+        <div id="recommendations" style="display:grid; gap:16px"></div>
+      </div>
+      <div>
+        <h2 style="margin-bottom:24px">Daily Goals</h2>
+        <div id="todoPreview"></div>
+      </div>
+    </div>
+
+    <!-- Feedback Section -->
+    <div style="margin-top:48px" class="au-5">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px">
+        <h2 style="margin:0">💬 Share Your Feedback</h2>
+        <span class="chip chip-b">Help us improve</span>
+      </div>
+      <div class="premium-card" style="padding:32px">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; margin-bottom:24px">
+          <div>
+            <label style="display:block; margin-bottom:8px; font-weight:700; color:var(--ink-2)">Rate your experience</label>
+            <div style="display:flex; gap:8px" id="ratingStars">
+              ${[1,2,3,4,5].map(i => `<button class="rating-star" data-rating="${i}" style="font-size:24px; background:none; border:none; cursor:pointer; transition:all 0.2s">⭐</button>`).join('')}
+            </div>
+          </div>
+          <div>
+            <label style="display:block; margin-bottom:8px; font-weight:700; color:var(--ink-2)">Feedback type</label>
+            <select id="feedbackType" style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-2); color:var(--ink)">
+              <option value="general">General Feedback</option>
+              <option value="content">Content Quality</option>
+              <option value="bug">Bug Report</option>
+              <option value="feature">Feature Request</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:24px">
+          <label style="display:block; margin-bottom:8px; font-weight:700; color:var(--ink-2)">Your feedback</label>
+          <textarea id="feedbackText" placeholder="Tell us what you think..." style="width:100%; min-height:100px; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-2); color:var(--ink); resize:vertical; font-family:var(--font)"></textarea>
+        </div>
+        <button class="btn btn-primary signature-button" onclick="submitFeedback()" style="width:100%">
+          <span style="font-size:18px; margin-right:8px">📤</span> Submit Feedback
+        </button>
+      </div>
+    </div>
+
+    <script>
+      // Rating stars interaction
+      let selectedRating = 0;
+      document.querySelectorAll('.rating-star').forEach(star => {
+        star.addEventListener('click', () => {
+          selectedRating = parseInt(star.dataset.rating);
+          updateRatingStars();
+        });
+        star.addEventListener('mouseenter', () => {
+          const hoverRating = parseInt(star.dataset.rating);
+          document.querySelectorAll('.rating-star').forEach((s, i) => {
+            s.style.opacity = i < hoverRating ? '1' : '0.3';
+            s.style.transform = i < hoverRating ? 'scale(1.1)' : 'scale(1)';
+          });
+        });
+      });
+      document.getElementById('ratingStars').addEventListener('mouseleave', updateRatingStars);
+      
+      function updateRatingStars() {
+        document.querySelectorAll('.rating-star').forEach((s, i) => {
+          s.style.opacity = i < selectedRating ? '1' : '0.3';
+          s.style.transform = i < selectedRating ? 'scale(1.1)' : 'scale(1)';
+        });
+      }
+      
+      function submitFeedback() {
+        const feedbackText = document.getElementById('feedbackText').value.trim();
+        const feedbackType = document.getElementById('feedbackType').value;
+        
+        if (!feedbackText) {
+          App.toast('Please enter your feedback', '⚠️');
+          return;
+        }
+        
+        const feedback = {
+          rating: selectedRating,
+          type: feedbackType,
+          text: feedbackText,
+          timestamp: Date.now(),
+          userAgent: navigator.userAgent
+        };
+        
+        // Save feedback to localStorage
+        const allFeedback = JSON.parse(localStorage.getItem('vm_feedback') || '[]');
+        allFeedback.push(feedback);
+        localStorage.setItem('vm_feedback', JSON.stringify(allFeedback));
+        
+        // Award points for feedback
+        App.addPoints(10, 'Feedback submitted');
+        
+        // Reset form
+        document.getElementById('feedbackText').value = '';
+        selectedRating = 0;
+        updateRatingStars();
+        
+        App.toast('Thank you for your feedback! +10 points', '🎉');
+      }
+    </script>
+  `;
+
+  // Render Subjects
+  const sortedSubjs = [...data.subjects];
+  if (profile?.favourite) {
+    const fi = sortedSubjs.findIndex(s => s.id === profile.favourite);
+    if (fi > 0) { const [f] = sortedSubjs.splice(fi,1); sortedSubjs.unshift(f); }
+  }
+  document.getElementById('subjGrid').innerHTML = sortedSubjs.map((s,i) => {
+    const pct  = App.getSubjPct(s.id, s);
+    const sp   = p[s.id] || {};
+    const done = (sp.done||[]).length;
+    return `<a href="subject.html?id=${s.id}" class="subj-card" style="--sc-c:${s.color||'var(--accent)'}; --sc-bg:${s.bg||'var(--accent-bg)'}; animation-delay:${i*100}ms">
+      <div class="sc-top">
+        <div class="sc-icon">${s.icon}</div>
+        <div style="font-size:1.2rem; font-weight:800; color:var(--ink-5)">→</div>
+      </div>
+      <div class="sc-info">
+        <h3>${VidyaSec.sanitize(s.name)}</h3>
+        <p class="sc-desc">${VidyaSec.sanitize(s.description)}</p>
+      </div>
+      <div class="sc-progress">
+        <div class="sc-pmeta">
+          <span>Progress</span>
+          <span>${pct}%</span>
+        </div>
+        <div class="sc-pbar">
+          <div class="sc-pfill" style="--pct: ${pct}%"></div>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; font-size:0.85rem; font-weight:700; color:var(--ink-4)">
+        <span>📄 ${s.chapters.length} Chapters</span>
+        <span>✅ ${done} Completed</span>
+      </div>
+    </a>`;
+  }).join('');
+
+  // Add futuristic glow effect to subject cards
+  document.querySelectorAll('.subj-card').forEach(card => {
+    card.addEventListener('mousemove', e => {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      card.style.setProperty('--glow-x', `${x}px`);
+      card.style.setProperty('--glow-y', `${y}px`);
+    });
+  });
+
+  // Animate progress bars on scroll
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('in-view');
+      }
+    });
+  }, { threshold: 0.5 });
+
+  document.querySelectorAll('.subj-card').forEach(card => {
+    observer.observe(card);
+  });
+
+  // Recommendations Logic (Simple next chapter)
+  const recs = data.subjects.map(s => {
+    const sp = p[s.id] || {};
+    const nextCh = s.chapters.find(ch => !(sp.done||[]).includes(ch.id));
+    if(!nextCh) return null;
+    return { subj: s, ch: nextCh };
+  }).filter(Boolean).slice(0, 3);
+
+  document.getElementById('recommendations').innerHTML = recs.map(r => `
+    <a href="chapter.html?subject=${r.subj.id}&chapter=${r.ch.id}" class="premium-card" style="padding:20px; display:flex; align-items:center; gap:20px; text-decoration:none; color:inherit">
+      <div style="width:48px; height:48px; border-radius:12px; background:var(--bg-2); display:flex; align-items:center; justify-content:center; font-size:24px">${r.subj.icon}</div>
+      <div style="flex:1">
+        <div style="font-size:0.75rem; font-weight:800; color:var(--accent); text-transform:uppercase; letter-spacing:0.05em">Next in ${r.subj.name}</div>
+        <div style="font-size:1rem; font-weight:800">${VidyaSec.sanitize(r.ch.title)}</div>
+      </div>
+      <div style="font-size:1.2rem; opacity:0.3">→</div>
+    </a>
+  `).join('');
+
+  // Recent todos
+  const todos = TodoPanel.getData().slice(0,5);
+  document.getElementById('todoPreview').innerHTML = todos.length
+    ? `<div class="todo-items">${todos.map(t=>TodoPanel.itemHTML(t)).join('')}</div>`
+    : `<div class="premium-card" style="padding:24px; text-align:center; color:var(--ink-4)">
+        <div style="font-size:32px; margin-bottom:12px">✨</div>
+        <p style="margin-bottom:16px">No tasks for today.</p>
+        <a href="todo.html" class="btn btn-secondary btn-sm">Add a Goal</a>
+      </div>`;
+
+  // Progress graph + stars (clean + lightweight)
+  const sMeta = [
+    {id:'mathematics', name:'Math', icon:'📐', c:'var(--math-c)'},
+    {id:'science', name:'Science', icon:'🔬', c:'var(--sci-c)'},
+    {id:'social-science', name:'SST', icon:'🌍', c:'var(--soc-c)'},
+    {id:'english', name:'English', icon:'📚', c:'var(--eng-c)'},
+  ];
+  const graph = document.createElement('div');
+  graph.className = 'card-3d au-2';
+  graph.style.marginBottom = '20px';
+  graph.innerHTML = `
+    <div class="card-accent-bar"></div>
+    <div class="card-head"><h3>📈 Progress Graph</h3><span class="chip chip-b">Stars + %</span></div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px" id="pgGrid"></div>
+    </div>`;
+  main.insertBefore(graph, document.getElementById('subjGrid').parentElement);
+
+  const pg = graph.querySelector('#pgGrid');
+  pg.innerHTML = sMeta.map(s=>{
+    const subj = data.subjects.find(x=>x.id===s.id);
+    const pct = subj ? App.getSubjPct(s.id, subj) : 0;
+    const stars = Math.max(0, Math.min(5, Math.round(pct/20)));
+    return `
+      <div class="gcard" style="padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-weight:900">${s.icon} ${s.name}</div>
+          <div style="font-weight:900;color:${s.c}">${pct}%</div>
+        </div>
+        <div class="pbar pbar-lg"><div class="pfill" style="width:${pct}%;background:linear-gradient(90deg,${s.c},var(--accent-2))"></div></div>
+        <div style="margin-top:10px;font-size:.8rem;color:var(--ink-3);display:flex;gap:3px">
+          ${Array.from({length:5}).map((_,i)=>`<span style="color:${i<stars?s.c:'var(--ink-5)'}">${i<stars?'★':'☆'}</span>`).join('')}
+          <span style="margin-left:auto;color:var(--ink-4);font-weight:700">${stars}/5</span>
+        </div>
+      </div>`;
+  }).join('');
+});
+
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good Morning';
+  if (h < 17) return 'Good Afternoon';
+  return 'Good Evening';
+}
+</script>
+<script src="js/music.js"></script>
+</body>
+</html>

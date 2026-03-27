@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Subject — Class 10Edu</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+.subj-hero{background:linear-gradient(135deg,rgba(var(--br),.16) 0%,rgba(var(--br),.04) 100%);border:1px solid var(--bdr2);border-radius:var(--rl);padding:24px 26px;margin-bottom:22px;position:relative;overflow:hidden}
+.subj-hero::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--sh-g,linear-gradient(90deg,var(--b),var(--a)))}
+.topic-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.tf-btn{padding:5px 14px;border-radius:99px;font-size:.78rem;font-weight:700;border:1px solid var(--bdr);background:transparent;color:var(--t3);cursor:pointer;transition:all .15s}
+.tf-btn:hover{border-color:var(--bdr2);color:var(--t1)}
+.tf-btn.on{background:rgba(var(--br),.14);color:var(--bl);border-color:rgba(var(--br),.3)}
+</style>
+</head>
+<body>
+<div id="nb"></div>
+<div class="page-layout">
+  <div id="sb"></div>
+  <main class="main-area" id="mainArea">
+    <div style="display:flex;align-items:center;justify-content:center;height:200px"><div class="spinner"></div></div>
+  </main>
+</div>
+<div class="page-watermark"></div>
+<script src="js/app.js"></script>
+<script src="js/security.js"></script>
+<script src="js/theme_todo.js"></script>
+
+<script>
+let _activeFilter='all';
+
+document.addEventListener('DOMContentLoaded',async()=>{
+  const sid=App.getParam('id');
+  if(!sid){location.href='dashboard.html';return;}
+  await App.loadData();
+  const subj=App.getSubject(sid);
+  if(!subj){location.href='dashboard.html';return;}
+  document.title=`${subj.name} — Vidya Mandir`;
+  App.initPage(sid);
+
+  const p=App.getProgress();
+  const sp=p[sid]||{};
+  const done=sp.done||[];
+  const pct=App.getSubjPct(sid,subj);
+  const admData=App._parseLS('vm_admin_data',{pdfs:[],ncertTopics:[],teachers:[]});
+  const admPDFs=(admData.pdfs||[]).filter(pdf=>pdf.subject===sid&&!pdf.chapter);
+  const admTopics=(admData.ncertTopics||[]).filter(t=>t.subject===sid&&!t.chapter);
+
+  document.getElementById('mainArea').innerHTML=`
+    <div class="page-head au">
+      <div class="breadcrumb"><a href="dashboard.html">Dashboard</a> <span class="sep">/</span> <span>${VidyaSec.sanitize(subj.name)}</span></div>
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px; margin-top:24px">
+        <h1 style="margin:0">${VidyaSec.sanitize(subj.name)}</h1>
+        <div class="streak-badge au-1" style="background:var(--sc-bg); color:var(--sc-c)">
+          <span style="font-size:20px">${subj.icon}</span>
+          <div style="font-size:0.9rem; font-weight:800">${done.length}/${subj.chapters.length} Done</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="continue-card au-1" style="background:var(--sc-c); color:#fff; box-shadow:0 20px 40px -10px var(--sc-bg)">
+      <div class="cont-content">
+        <div class="cont-label" style="color:rgba(255,255,255,0.8)">Course Overview</div>
+        <h2 class="cont-title">${VidyaSec.sanitize(subj.description)}</h2>
+        <div style="display:flex; gap:20px; margin-bottom:32px">
+          <div style="text-align:center">
+            <div style="font-size:1.5rem; font-weight:900">${subj.chapters.length}</div>
+            <div style="font-size:0.7rem; font-weight:700; opacity:0.7; text-transform:uppercase">Chapters</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:1.5rem; font-weight:900">${pct}%</div>
+            <div style="font-size:0.7rem; font-weight:700; opacity:0.7; text-transform:uppercase">Completed</div>
+          </div>
+        </div>
+        <div class="sc-pbar" style="background:rgba(255,255,255,0.2); height:12px">
+          <div class="sc-pfill" style="width:${pct}%; background:#fff"></div>
+        </div>
+      </div>
+      <div class="cont-visual" style="font-size:100px; opacity:0.2">${subj.icon}</div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 2fr 1fr; gap:32px" class="au-2">
+      <div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px">
+          <h2 style="margin:0">Chapters</h2>
+          <div class="filter-tabs">
+            <div class="ftab active" data-f="all" onclick="filterCh('all',this)">All</div>
+            <div class="ftab" data-f="pending" onclick="filterCh('pending',this)">Pending</div>
+            <div class="ftab" data-f="done" onclick="filterCh('done',this)">Done</div>
+          </div>
+        </div>
+        <div class="ch-list" id="chList"></div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:24px">
+        ${admPDFs.length ? `
+        <div class="premium-card" style="padding:24px">
+          <h3 style="margin-bottom:16px">📁 Resources</h3>
+          <div style="display:grid; gap:12px">
+            ${admPDFs.map(pdf => `
+              <div class="pdf-row" onclick="window.open('${pdf.url}','_blank')" style="padding:12px; border-radius:12px; background:var(--bg-2); display:flex; align-items:center; gap:12px; cursor:pointer">
+                <span style="font-size:20px">📄</span>
+                <div style="flex:1; font-size:0.85rem; font-weight:700">${VidyaSec.sanitize(pdf.name)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+
+        ${admTopics.length ? `
+        <div class="premium-card" style="padding:24px">
+          <h3 style="margin-bottom:16px">⭐ Key Topics</h3>
+          <div style="display:grid; gap:12px">
+            ${admTopics.map((t,i) => `
+              <div style="display:flex; align-items:flex-start; gap:12px; font-size:0.9rem">
+                <div style="width:24px; height:24px; border-radius:6px; background:var(--accent-bg); color:var(--accent); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:0.7rem; flex-shrink:0">${i+1}</div>
+                <div style="flex:1; color:var(--ink-2); line-height:1.4">${VidyaSec.sanitize(t.text)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+
+  renderCh(subj, sid, done, sp, admData);
+});
+
+function filterCh(f, btn) {
+  _activeFilter=f;
+  document.querySelectorAll('.tf-btn').forEach(b=>b.classList.toggle('on',b.dataset.f===f));
+  const sid=App.getParam('id');
+  const subj=App.getSubject(sid);
+  const sp=App.getProgress()[sid]||{};
+  renderCh(subj, sid, sp.done||[], sp, App._parseLS('vm_admin_data',{pdfs:[],ncertTopics:[]}));
+}
+
+function renderCh(subj, sid, done, sp, admData) {
+  let chs=subj.chapters;
+  if(_activeFilter==='done')    chs=chs.filter(c=>done.includes(c.id));
+  if(_activeFilter==='pending') chs=chs.filter(c=>!done.includes(c.id));
+
+  const el=document.getElementById('chList');
+  if(!el) return;
+  if(!chs.length){el.innerHTML=`<div style="text-align:center;padding:28px;color:var(--t3);font-size:.86rem">No chapters match this filter</div>`;return;}
+
+  el.innerHTML=chs.map((ch,i)=>{
+    const isDone=done.includes(ch.id);
+    const score=sp.scores?.[ch.id];
+    const origIdx=subj.chapters.indexOf(ch);
+    const chPDFs=(admData.pdfs||[]).filter(p=>p.chapter===ch.id).length;
+    const admTop=(admData.ncertTopics||[]).filter(t=>t.chapter===ch.id).length;
+    const bm=App.isBookmarked(sid,ch.id);
+    return `<a href="chapter.html?subject=${sid}&chapter=${ch.id}" class="ch-row ${isDone?'done':''}" style="animation:fadeUp .35s ${i*40}ms both">
+      <div class="ch-num">${isDone?'✓':String(origIdx+1).padStart(2,'0')}</div>
+      <div class="ch-info">
+        <div class="ch-title">${VidyaSec.sanitize(ch.title)}</div>
+        <div class="ch-metas">
+          <span>▶ ${ch.lessons.length} lesson${ch.lessons.length!==1?'s':''}</span>
+          <span>⏱ ${ch.duration}</span>
+          <span>❓ ${ch.quiz.length} Qs</span>
+          <span>⭐ ${(ch.ncertTopics?.length||0)+admTop}</span>
+          ${chPDFs?`<span style="color:var(--tll)">📁 ${chPDFs}</span>`:''}
+          ${bm?`<span style="color:var(--b)">🔖</span>`:''}
+          ${score?`<span class="score-badge">🏆 ${score.pct}%</span>`:''}
+          ${isDone?`<span style="color:var(--tll)">✅</span>`:''}
+        </div>
+      </div>
+      <div class="ch-arr">›</div>
+    </a>`;
+  }).join('');
+}
+</script>
+<script src="js/music.js"></script>
+</body>
+</html>
